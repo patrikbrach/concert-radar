@@ -2,9 +2,9 @@ import streamlit as st
 import requests
 import time
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
-st.set_page_config(page_title="Sweden Concert Radar", page_icon="♫", layout="wide")
+st.set_page_config(page_title="Sweden Concert Radar", page_icon="🎵", layout="wide")
 
 # ── Config ──
 TM_API_KEY = st.secrets["TM_API_KEY"]
@@ -18,6 +18,16 @@ COUNTRY_NAMES = {
     "IE": "Ireland", "AT": "Austria", "CH": "Switzerland", "BE": "Belgium",
     "NZ": "New Zealand", "PT": "Portugal", "PL": "Poland", "CZ": "Czech Republic",
     "MX": "Mexico", "AR": "Argentina", "ZA": "South Africa", "IS": "Iceland",
+    "JM": "Jamaica", "TT": "Trinidad", "PR": "Puerto Rico", "CO": "Colombia",
+}
+
+COUNTRY_FLAGS = {
+    "SE": "🇸🇪", "US": "🇺🇸", "GB": "🇬🇧", "JP": "🇯🇵", "DE": "🇩🇪",
+    "KR": "🇰🇷", "FR": "🇫🇷", "BR": "🇧🇷", "AU": "🇦🇺", "CA": "🇨🇦",
+    "NO": "🇳🇴", "DK": "🇩🇰", "FI": "🇫🇮", "NL": "🇳🇱", "IT": "🇮🇹",
+    "ES": "🇪🇸", "IE": "🇮🇪", "AT": "🇦🇹", "CH": "🇨🇭", "BE": "🇧🇪",
+    "NZ": "🇳🇿", "PT": "🇵🇹", "PL": "🇵🇱", "CZ": "🇨🇿", "MX": "🇲🇽",
+    "AR": "🇦🇷", "ZA": "🇿🇦", "IS": "🇮🇸", "JM": "🇯🇲", "CO": "🇨🇴",
 }
 
 def cn(code):
@@ -25,80 +35,141 @@ def cn(code):
         return "Unknown"
     return COUNTRY_NAMES.get(code, code)
 
+def flag(code):
+    return COUNTRY_FLAGS.get(code, "🌍")
+
 
 # ── Styling ──
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;500;700&family=Instrument+Serif&display=swap');
-    
-    .block-container { padding-top: 2rem; }
-    
-    h1, h2, h3 { font-family: 'Instrument Serif', serif !important; }
-    
-    .big-stat {
-        background: #111115;
-        border: 1px solid #1f1f28;
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&family=Playfair+Display:wght@400;700&display=swap');
+
+    .block-container { padding-top: 1.5rem; max-width: 1200px; }
+
+    h1 { font-family: 'Playfair Display', serif !important; font-weight: 700 !important; }
+    h2, h3 { font-family: 'DM Sans', sans-serif !important; font-weight: 600 !important; }
+
+    div[data-testid="stMetric"] {
+        background: linear-gradient(135deg, #16161a 0%, #1a1a2e 100%);
+        border: 1px solid #2a2a3d;
         border-radius: 12px;
-        padding: 20px 24px;
-        text-align: center;
+        padding: 18px 20px;
     }
-    .big-stat .value {
-        font-family: 'Instrument Serif', serif;
-        font-size: 42px;
-        font-weight: 400;
-        line-height: 1.1;
+    div[data-testid="stMetric"] label { color: #8888aa !important; font-size: 13px !important; }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: #e2e2f0 !important; }
+
+    .highlight-card {
+        background: linear-gradient(135deg, #16161a 0%, #1a1a2e 100%);
+        border: 1px solid #2a2a3d;
+        border-radius: 14px;
+        padding: 18px 22px;
+        margin-bottom: 10px;
+        transition: border-color 0.2s;
     }
-    .big-stat .label {
-        color: #999;
-        font-size: 13px;
-        margin-top: 4px;
+    .highlight-card:hover { border-color: #4a4a6d; }
+
+    .highlight-card .date {
+        font-size: 12px;
+        color: #6c72cb;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
     }
-    .big-stat .sub {
-        color: #555;
-        font-size: 11px;
-    }
-    
-    .country-pill {
-        display: inline-block;
-        background: #1a1a22;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 11px;
+    .highlight-card .event-name {
+        font-size: 17px;
         font-weight: 700;
-        color: #ccc;
-        font-family: monospace;
-        margin-right: 6px;
+        color: #e8e8f0;
+        margin: 4px 0;
+        font-family: 'DM Sans', sans-serif;
     }
-    
-    .artist-chip {
+    .highlight-card .venue {
+        font-size: 13px;
+        color: #7a7a99;
+    }
+    .highlight-card .artist-info {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+    .highlight-card .artist-tag {
         display: inline-block;
-        background: #0a0a0c;
-        border: 1px solid #333;
+        background: #252540;
+        border: 1px solid #35355a;
+        border-radius: 20px;
+        padding: 3px 12px;
+        font-size: 12px;
+        color: #b8b8d0;
+    }
+    .highlight-card .fans-badge {
+        display: inline-block;
+        background: linear-gradient(135deg, #6c72cb22, #cb69c122);
+        border: 1px solid #6c72cb44;
         border-radius: 20px;
         padding: 3px 10px;
-        font-size: 12px;
-        color: #ccc;
-        margin: 2px 4px 2px 0;
+        font-size: 11px;
+        color: #a8a0d0;
+        font-weight: 600;
     }
-    .artist-chip.popular { border-color: #4ade80; }
-    .artist-chip.not-popular { border-color: #555; }
-    
-    .tag-badge {
+    .highlight-card .genre-tag {
         display: inline-block;
         font-size: 10px;
-        color: #9b59b6;
-        background: #1a1122;
+        color: #cb69c1;
+        background: #2a1a2a;
         border-radius: 4px;
         padding: 2px 7px;
         margin: 1px 3px 1px 0;
     }
-    
-    div[data-testid="stMetric"] {
-        background: #111115;
-        border: 1px solid #1f1f28;
-        border-radius: 12px;
-        padding: 16px;
+    .highlight-card.popular { border-left: 3px solid #6c72cb; }
+
+    .top-artist-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid #1f1f33;
     }
+    .top-artist-row .rank {
+        font-size: 22px;
+        font-weight: 700;
+        color: #35355a;
+        min-width: 32px;
+        text-align: right;
+        font-family: 'Playfair Display', serif;
+    }
+    .top-artist-row .rank.gold { color: #d4a843; }
+    .top-artist-row .rank.silver { color: #8888aa; }
+    .top-artist-row .rank.bronze { color: #a0705a; }
+    .top-artist-row .name {
+        font-size: 15px;
+        font-weight: 600;
+        color: #e2e2f0;
+        flex: 1;
+    }
+    .top-artist-row .meta {
+        font-size: 12px;
+        color: #7a7a99;
+    }
+    .top-artist-row .fan-count {
+        font-size: 13px;
+        font-weight: 700;
+        color: #6c72cb;
+        min-width: 80px;
+        text-align: right;
+    }
+
+    .summary-line {
+        font-size: 15px;
+        color: #b0b0cc;
+        padding: 6px 0;
+        line-height: 1.6;
+    }
+    .summary-line strong { color: #e2e2f0; }
+    .summary-line .accent { color: #6c72cb; font-weight: 700; }
+    .summary-line .pink { color: #cb69c1; font-weight: 700; }
+
+    section[data-testid="stSidebar"] { background: #12121a; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,7 +177,6 @@ st.markdown("""
 # ── Data fetching ──
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_concerts():
-    """Fetch all upcoming music events in Sweden from Ticketmaster."""
     all_events = []
     page = 0
     total_pages = 1
@@ -155,10 +225,39 @@ def fetch_concerts():
 
 @st.cache_data(ttl=86400, show_spinner=False)
 def enrich_artist(name):
-    """Fetch artist country + tags from MusicBrainz and fans + genres from Deezer."""
-    info = {"country": None, "country_name": "Unknown", "tags": [], "genres": [], "fans": None, "is_popular": None}
+    info = {
+        "country": None, "country_name": "Unknown", "tags": [],
+        "genres": [], "fans": None, "is_popular": None, "is_real_artist": False,
+    }
 
-    # MusicBrainz
+    # Deezer first — also validates it's a real artist
+    try:
+        res = requests.get(
+            "https://api.deezer.com/search/artist",
+            params={"q": name, "limit": 1},
+            timeout=10,
+        )
+        data = res.json().get("data", [])
+        if data:
+            da = data[0]
+            # Check name similarity to filter false matches
+            if name.lower() in da.get("name", "").lower() or da.get("name", "").lower() in name.lower():
+                info["is_real_artist"] = True
+                info["fans"] = da.get("nb_fan", 0)
+                info["is_popular"] = info["fans"] >= POPULAR_THRESHOLD if info["fans"] is not None else None
+
+                try:
+                    album_res = requests.get(f"https://api.deezer.com/artist/{da['id']}/albums?limit=1", timeout=10)
+                    albums = album_res.json().get("data", [])
+                    if albums:
+                        ad = requests.get(f"https://api.deezer.com/album/{albums[0]['id']}", timeout=10).json()
+                        info["genres"] = [g["name"] for g in ad.get("genres", {}).get("data", [])]
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    # MusicBrainz for country + tags
     try:
         res = requests.get(
             "https://musicbrainz.org/ws/2/artist/",
@@ -169,262 +268,373 @@ def enrich_artist(name):
         artists = res.json().get("artists", [])
         if artists:
             a = artists[0]
-            info["country"] = a.get("country") or None
-            info["country_name"] = cn(info["country"])
-            info["tags"] = sorted(
-                a.get("tags", []), key=lambda x: x.get("count", 0), reverse=True
-            )[:4]
-            info["tags"] = [t["name"] for t in info["tags"]]
+            if a.get("score", 0) >= 80:
+                info["country"] = a.get("country") or None
+                info["country_name"] = cn(info["country"])
+                info["tags"] = sorted(
+                    a.get("tags", []), key=lambda x: x.get("count", 0), reverse=True
+                )[:4]
+                info["tags"] = [t["name"] for t in info["tags"]]
+                if not info["is_real_artist"] and a.get("type") in ("Person", "Group"):
+                    info["is_real_artist"] = True
     except Exception:
         pass
 
-    time.sleep(1.1)  # MusicBrainz rate limit
-
-    # Deezer
-    try:
-        res = requests.get(
-            "https://api.deezer.com/search/artist",
-            params={"q": name, "limit": 1},
-            timeout=10,
-        )
-        data = res.json().get("data", [])
-        if data:
-            da = data[0]
-            info["fans"] = da.get("nb_fan", 0)
-            info["is_popular"] = info["fans"] >= POPULAR_THRESHOLD if info["fans"] is not None else None
-
-            # Genres from first album
-            try:
-                album_res = requests.get(f"https://api.deezer.com/artist/{da['id']}/albums?limit=1", timeout=10)
-                albums = album_res.json().get("data", [])
-                if albums:
-                    ad = requests.get(f"https://api.deezer.com/album/{albums[0]['id']}", timeout=10).json()
-                    info["genres"] = [g["name"] for g in ad.get("genres", {}).get("data", [])]
-            except Exception:
-                pass
-    except Exception:
-        pass
-
+    time.sleep(1.1)
     return info
 
 
 # ── Main App ──
-st.markdown("# ♫ Sweden Concert Radar")
-st.caption("Upcoming concerts in Sweden enriched with artist origin, genre tags & popularity data")
+st.markdown("# 🎵 Sweden Concert Radar")
+st.caption("Upcoming concerts in Sweden • Artist origins, genres & popularity")
 
-# Fetch concerts
-with st.spinner("Fetching concerts from Ticketmaster..."):
+with st.spinner("Loading concerts from Ticketmaster..."):
     concerts = fetch_concerts()
 
 if not concerts:
     st.warning("No concerts found.")
     st.stop()
 
-# Get unique artists
-all_artists_in_concerts = []
-for c in concerts:
-    all_artists_in_concerts.extend(c["artists"])
-unique_artists = list(dict.fromkeys(all_artists_in_concerts))
+# Unique artists
+all_artist_names = list(dict.fromkeys(a for c in concerts for a in c["artists"] if a))
 
-# Enrich artists
+# Enrich
 artist_data = {}
-progress_placeholder = st.empty()
-bar_placeholder = st.empty()
-
-unenriched = [a for a in unique_artists if a]
-total = len(unenriched)
-
+total = len(all_artist_names)
 if total > 0:
-    progress_placeholder.markdown(f"**Enriching {total} artists** with country, genre & fan data...")
-    progress_bar = bar_placeholder.progress(0)
-
-    for i, name in enumerate(unenriched):
+    progress_text = st.empty()
+    progress_bar = st.empty()
+    progress_text.caption(f"Enriching {total} artists with country, genre & fan data...")
+    bar = progress_bar.progress(0)
+    for i, name in enumerate(all_artist_names):
         artist_data[name] = enrich_artist(name)
-        progress_bar.progress((i + 1) / total)
+        bar.progress((i + 1) / total)
+    progress_text.empty()
+    progress_bar.empty()
 
-    progress_placeholder.empty()
-    bar_placeholder.empty()
+# Filter out non-real artists
+real_artists = {k: v for k, v in artist_data.items() if v.get("is_real_artist")}
+fake_names = set(artist_data.keys()) - set(real_artists.keys())
 
-# ── Build dataframe ──
-rows_for_df = []
+# Clean concerts — remove fake artist names
+clean_concerts = []
 for c in concerts:
-    primary = c["artists"][0] if c["artists"] else ""
-    info = artist_data.get(primary, {})
-    all_tags = set()
-    all_genres = set()
-    for a in c["artists"]:
-        ai = artist_data.get(a, {})
-        all_tags.update(ai.get("tags", []))
-        all_genres.update(ai.get("genres", []))
+    cleaned = [a for a in c["artists"] if a not in fake_names]
+    if cleaned or c["artists"]:  # keep concert even if no verified artist
+        clean_concerts.append({**c, "artists": cleaned if cleaned else c["artists"]})
+concerts = clean_concerts
 
-    rows_for_df.append({
-        "Date": c["date"],
-        "Time": c["time"][:5] if c["time"] else "",
-        "Event": c["event"],
-        "Artists": ", ".join(c["artists"]),
-        "Venue": c["venue"],
-        "City": c["city"],
-        "Artist Country": info.get("country") or "N/A",
-        "Country Name": info.get("country_name", "Unknown"),
-        "Fans": info.get("fans"),
-        "Popular": "Yes" if info.get("is_popular") else ("No" if info.get("is_popular") is False else "N/A"),
-        "Tags": ", ".join(all_tags) if all_tags else "",
-        "Genres": ", ".join(all_genres) if all_genres else "",
-        "Tickets": c["url"],
-    })
-
-df = pd.DataFrame(rows_for_df)
-df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-df = df.sort_values("Date")
-
-# ── Stats ──
+# Stats
 now = datetime.now()
-this_month_mask = (df["Date"].dt.month == now.month) & (df["Date"].dt.year == now.year)
+popular_artists = {k: v for k, v in real_artists.items() if v.get("is_popular")}
+not_popular_artists = {k: v for k, v in real_artists.items() if v.get("is_popular") is False}
+na_artists_count = len(all_artist_names) - len(real_artists)
 
-total_concerts = len(df)
-total_artists = len(unique_artists)
-popular_count = sum(1 for a in artist_data.values() if a.get("is_popular") is True)
-not_popular_count = sum(1 for a in artist_data.values() if a.get("is_popular") is False)
-na_count = total_artists - popular_count - not_popular_count
+# Country counts
+country_counts = {}
+for v in real_artists.values():
+    c = v.get("country") or "N/A"
+    country_counts[c] = country_counts.get(c, 0) + 1
 
 # ── TABS ──
-tab_dashboard, tab_concerts = st.tabs(["📊 Dashboard", f"🎵 All Concerts ({total_concerts})"])
+tab_dash, tab_highlights, tab_concerts = st.tabs([
+    f"📊 Dashboard",
+    f"🔥 Highlights & Top Artists",
+    f"🎵 All Concerts ({len(concerts)})",
+])
 
-# ─────────────────────────────────────────
-# DASHBOARD TAB
-# ─────────────────────────────────────────
-with tab_dashboard:
-    # Stat row
+
+# ═══════════════════════════════════════════
+# DASHBOARD
+# ═══════════════════════════════════════════
+with tab_dash:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Concerts", total_concerts)
-    c2.metric("Unique Artists", total_artists)
-    c3.metric("Popular Artists", popular_count, help="≥ 10,000 Deezer fans")
-    c4.metric("Not Popular / N/A", f"{not_popular_count} / {na_count}", help="< 10k fans / unknown")
+    c1.metric("Total Concerts", len(concerts))
+    c2.metric("Verified Artists", len(real_artists))
+    c3.metric("Popular Artists", len(popular_artists), help="≥ 10,000 Deezer fans")
+    c4.metric("Emerging / N/A", f"{len(not_popular_artists)} / {na_artists_count}")
+
+    st.markdown("")
+
+    # This month
+    this_month = [c for c in concerts if c["date"] and
+                  datetime.strptime(c["date"], "%Y-%m-%d").month == now.month and
+                  datetime.strptime(c["date"], "%Y-%m-%d").year == now.year]
+
+    if this_month:
+        st.subheader(f"📅 This Month — {now.strftime('%B %Y')}")
+        tm_artists = list(dict.fromkeys(a for c in this_month for a in c["artists"] if a in real_artists))
+        tm_countries = {}
+        for a in tm_artists:
+            c_code = real_artists[a].get("country") or "N/A"
+            c_name = cn(c_code)
+            tm_countries[c_name] = tm_countries.get(c_name, 0) + 1
+        tm_sorted = sorted(tm_countries.items(), key=lambda x: x[1], reverse=True)[:6]
+
+        cols = st.columns(2 + len(tm_sorted))
+        cols[0].metric("Concerts", len(this_month))
+        cols[1].metric("Artists", len(tm_artists))
+        for i, (country, count) in enumerate(tm_sorted):
+            cols[i + 2].metric(f"From {country}", count)
 
     st.markdown("---")
 
-    # This month summary
-    this_month_df = df[this_month_mask]
-    if len(this_month_df) > 0:
-        st.subheader(f"📅 This Month — {now.strftime('%B %Y')}")
+    # Two columns
+    col_l, col_r = st.columns(2)
 
-        this_month_countries = this_month_df["Country Name"].value_counts().head(6)
-        cols = st.columns(2 + len(this_month_countries))
-        cols[0].metric("Concerts", len(this_month_df))
-        cols[1].metric("Artists", this_month_df["Artists"].nunique())
-        for i, (country, count) in enumerate(this_month_countries.items()):
-            cols[i + 2].metric(f"From {country}", count)
+    with col_l:
+        st.subheader("🌍 Artists by Country of Origin")
+        sorted_countries = sorted(country_counts.items(), key=lambda x: x[1], reverse=True)
+        sorted_countries = [(c, n) for c, n in sorted_countries if c != "N/A"][:15]
 
-        st.markdown("---")
+        if sorted_countries:
+            labels = [f"{flag(c)} {cn(c)}" for c, _ in sorted_countries]
+            values = [n for _, n in sorted_countries]
+            chart_df = pd.DataFrame({"Country": labels, "Artists": values})
+            chart_df = chart_df.set_index("Country").sort_values("Artists", ascending=True)
+            st.bar_chart(chart_df, horizontal=True, color="#6c72cb")
 
-    # Two columns: Country + Genre
-    col_left, col_right = st.columns(2)
-
-    with col_left:
-        st.subheader("🌍 Artists by Country")
-        country_counts = pd.Series({
-            cn(a.get("country")): 1
-            for a in artist_data.values()
-        }).groupby(level=0).sum().sort_values(ascending=True).tail(15)
-
-        st.bar_chart(country_counts, horizontal=True, color="#e8b931")
-
-    with col_right:
+    with col_r:
         st.subheader("🏷️ Top Genres & Tags")
         tag_counter = {}
-        for a in artist_data.values():
+        for a in real_artists.values():
             for t in list(a.get("tags", [])) + list(a.get("genres", [])):
                 key = t.lower()
                 tag_counter[key] = tag_counter.get(key, 0) + 1
         if tag_counter:
-            tag_series = pd.Series(tag_counter).sort_values(ascending=True).tail(15)
-            st.bar_chart(tag_series, horizontal=True, color="#9b59b6")
+            tag_sorted = sorted(tag_counter.items(), key=lambda x: x[1], reverse=True)[:15]
+            tag_df = pd.DataFrame(tag_sorted, columns=["Genre", "Count"]).set_index("Genre")
+            tag_df = tag_df.sort_values("Count", ascending=True)
+            st.bar_chart(tag_df, horizontal=True, color="#cb69c1")
 
-    # Concerts per month
+    # Monthly timeline
     st.subheader("📈 Concerts by Month")
-    monthly = df.groupby(df["Date"].dt.to_period("M")).size()
-    monthly.index = monthly.index.astype(str)
-    st.bar_chart(monthly, color="#e8b931")
+    month_data = {}
+    for c in concerts:
+        if c["date"]:
+            try:
+                d = datetime.strptime(c["date"], "%Y-%m-%d")
+                key = d.strftime("%Y-%m")
+                month_data[key] = month_data.get(key, 0) + 1
+            except ValueError:
+                pass
+    if month_data:
+        month_df = pd.DataFrame(
+            sorted(month_data.items()),
+            columns=["Month", "Concerts"]
+        ).set_index("Month")
+        st.bar_chart(month_df, color="#6c72cb")
 
-    # Country summary sentences
-    st.subheader("📋 Quick Summary")
-    country_artist_counts = {}
-    for a_name, a_info in artist_data.items():
-        c_name = a_info.get("country_name", "Unknown")
-        country_artist_counts[c_name] = country_artist_counts.get(c_name, 0) + 1
+    # Quick summary
+    st.subheader("📋 Summary")
+    sorted_c = sorted(country_counts.items(), key=lambda x: x[1], reverse=True)
+    lines = []
+    for code, count in sorted_c[:8]:
+        if code != "N/A":
+            lines.append(f'<span class="accent">{count}</span> artists from <strong>{flag(code)} {cn(code)}</strong>')
+    lines.append(f'<span class="accent">{len(popular_artists)}</span> popular artists (≥ 10k fans)')
+    lines.append(f'<span class="pink">{len(not_popular_artists)}</span> emerging / smaller artists')
+    lines.append(f'{na_artists_count} unverified or non-artist entries filtered out')
 
-    sorted_countries = sorted(country_artist_counts.items(), key=lambda x: x[1], reverse=True)
-    summary_lines = []
-    for country, count in sorted_countries[:10]:
-        if country != "Unknown":
-            summary_lines.append(f"**{count}** artists from **{country}**")
-    summary_lines.append(f"**{popular_count}** popular artists (≥ 10k fans)")
-    summary_lines.append(f"**{not_popular_count}** smaller/emerging artists")
-    summary_lines.append(f"**{na_count}** with unknown popularity")
+    for line in lines:
+        st.markdown(f'<div class="summary-line">• {line}</div>', unsafe_allow_html=True)
 
-    for line in summary_lines:
-        st.markdown(f"• {line}")
+    st.caption(f"Last updated: {now.strftime('%Y-%m-%d %H:%M')} • Data from Ticketmaster, MusicBrainz & Deezer")
 
 
-# ─────────────────────────────────────────
-# CONCERTS TAB
-# ─────────────────────────────────────────
+# ═══════════════════════════════════════════
+# HIGHLIGHTS & TOP ARTISTS
+# ═══════════════════════════════════════════
+with tab_highlights:
+    hl_col1, hl_col2 = st.columns([3, 2])
+
+    with hl_col1:
+        st.subheader("🔥 Upcoming Big Concerts")
+        st.caption("Concerts with popular artists (≥ 10k fans), sorted by date")
+
+        # Get concerts with popular artists
+        big_concerts = []
+        for c in concerts:
+            max_fans = 0
+            pop_names = []
+            for a in c["artists"]:
+                info = real_artists.get(a)
+                if info and info.get("is_popular"):
+                    pop_names.append(a)
+                    if info.get("fans", 0) > max_fans:
+                        max_fans = info["fans"]
+            if pop_names:
+                big_concerts.append({**c, "max_fans": max_fans, "popular_artists": pop_names})
+
+        big_concerts.sort(key=lambda x: x["date"])
+
+        for c in big_concerts[:20]:
+            tags_all = set()
+            for a in c["artists"]:
+                info = real_artists.get(a, {})
+                tags_all.update(info.get("tags", []))
+                tags_all.update(info.get("genres", []))
+
+            artist_chips = ""
+            for a in c["artists"]:
+                info = real_artists.get(a, {})
+                f_str = flag(info.get("country", ""))
+                fans = info.get("fans")
+                fan_str = f'<span class="fans-badge">{fans:,.0f} fans</span>' if fans else ""
+                artist_chips += f'<span class="artist-tag">{f_str} {a}</span> {fan_str} '
+
+            tag_chips = ""
+            for t in list(tags_all)[:5]:
+                tag_chips += f'<span class="genre-tag">{t}</span>'
+
+            st.markdown(f"""
+            <div class="highlight-card popular">
+                <div class="date">{c["date"]} • {c["time"][:5] if c["time"] else ""}</div>
+                <div class="event-name">{c["event"]}</div>
+                <div class="venue">📍 {c["venue"]}, {c["city"]}</div>
+                <div class="artist-info">{artist_chips}</div>
+                <div style="margin-top:6px">{tag_chips}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if not big_concerts:
+            st.info("No concerts with popular artists found.")
+
+    with hl_col2:
+        st.subheader("⭐ Top Artists Coming to Sweden")
+        st.caption("Ranked by Deezer fan count")
+
+        # Sort real artists by fans
+        artists_with_fans = [
+            (name, info) for name, info in real_artists.items()
+            if info.get("fans") and info["fans"] > 0
+        ]
+        artists_with_fans.sort(key=lambda x: x[1]["fans"], reverse=True)
+
+        for i, (name, info) in enumerate(artists_with_fans[:25]):
+            rank_class = "gold" if i < 1 else "silver" if i < 3 else "bronze" if i < 5 else ""
+            c_flag = flag(info.get("country", ""))
+            c_name = info.get("country_name", "Unknown")
+            fans = info.get("fans", 0)
+            tags = ", ".join(info.get("tags", [])[:2])
+
+            st.markdown(f"""
+            <div class="top-artist-row">
+                <div class="rank {rank_class}">{i+1}</div>
+                <div class="name">{c_flag} {name}</div>
+                <div class="meta">{c_name} • {tags}</div>
+                <div class="fan-count">{fans:,.0f}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if not artists_with_fans:
+            st.info("No artist data yet.")
+
+    # Next 30 days section
+    st.markdown("---")
+    st.subheader("📅 Next 30 Days")
+    cutoff = (now + timedelta(days=30)).strftime("%Y-%m-%d")
+    next30 = [c for c in concerts if c["date"] and c["date"] <= cutoff and c["date"] >= now.strftime("%Y-%m-%d")]
+    next30_popular = [c for c in next30 if any(real_artists.get(a, {}).get("is_popular") for a in c["artists"])]
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Concerts in next 30 days", len(next30))
+    m2.metric("With popular artists", len(next30_popular))
+    m3.metric("Cities", len(set(c["city"] for c in next30)))
+
+
+# ═══════════════════════════════════════════
+# ALL CONCERTS TABLE
+# ═══════════════════════════════════════════
 with tab_concerts:
-    # Filters
     fc1, fc2, fc3 = st.columns([3, 1, 1])
     with fc1:
         search = st.text_input("🔍 Search artist, venue, city...", key="search")
     with fc2:
-        countries_list = ["All"] + sorted(df["Country Name"].unique().tolist())
-        country_sel = st.selectbox("Country", countries_list, key="country_sel")
+        all_country_names = sorted(set(
+            real_artists[a].get("country_name", "Unknown")
+            for c in concerts for a in c["artists"] if a in real_artists
+        ))
+        country_sel = st.selectbox("Country", ["All"] + all_country_names, key="country_sel")
     with fc3:
-        pop_sel = st.selectbox("Popularity", ["All", "Popular (≥10k)", "Not popular", "N/A"], key="pop_sel")
+        pop_sel = st.selectbox("Popularity", ["All", "Popular (≥10k)", "Emerging (<10k)", "Unknown"], key="pop_sel")
 
-    filtered = df.copy()
+    # Build dataframe
+    rows = []
+    for c in concerts:
+        primary = c["artists"][0] if c["artists"] else ""
+        info = real_artists.get(primary, {})
+        all_tags = set()
+        all_genres = set()
+        max_fans = 0
+        for a in c["artists"]:
+            ai = real_artists.get(a, {})
+            all_tags.update(ai.get("tags", []))
+            all_genres.update(ai.get("genres", []))
+            if ai.get("fans", 0) > max_fans:
+                max_fans = ai["fans"] or 0
+
+        rows.append({
+            "Date": c["date"],
+            "Time": c["time"][:5] if c["time"] else "",
+            "Event": c["event"],
+            "Artists": ", ".join(c["artists"]),
+            "Venue": c["venue"],
+            "City": c["city"],
+            "Origin": f'{flag(info.get("country"))} {info.get("country_name", "?")}' if info else "?",
+            "Country Name": info.get("country_name", "Unknown") if info else "Unknown",
+            "Fans": max_fans if max_fans else None,
+            "Popular": "Yes" if any(real_artists.get(a, {}).get("is_popular") for a in c["artists"]) else (
+                "No" if any(a in real_artists for a in c["artists"]) else "Unknown"
+            ),
+            "Tags": ", ".join(all_tags) if all_tags else "",
+            "Genres": ", ".join(all_genres) if all_genres else "",
+            "Tickets": c["url"],
+        })
+
+    df = pd.DataFrame(rows)
+
+    # Apply filters
     if search:
         mask = (
-            filtered["Artists"].str.contains(search, case=False, na=False) |
-            filtered["Event"].str.contains(search, case=False, na=False) |
-            filtered["Venue"].str.contains(search, case=False, na=False) |
-            filtered["City"].str.contains(search, case=False, na=False)
+            df["Artists"].str.contains(search, case=False, na=False) |
+            df["Event"].str.contains(search, case=False, na=False) |
+            df["Venue"].str.contains(search, case=False, na=False) |
+            df["City"].str.contains(search, case=False, na=False)
         )
-        filtered = filtered[mask]
+        df = df[mask]
     if country_sel != "All":
-        filtered = filtered[filtered["Country Name"] == country_sel]
+        df = df[df["Country Name"] == country_sel]
     if pop_sel == "Popular (≥10k)":
-        filtered = filtered[filtered["Popular"] == "Yes"]
-    elif pop_sel == "Not popular":
-        filtered = filtered[filtered["Popular"] == "No"]
-    elif pop_sel == "N/A":
-        filtered = filtered[filtered["Popular"] == "N/A"]
+        df = df[df["Popular"] == "Yes"]
+    elif pop_sel == "Emerging (<10k)":
+        df = df[df["Popular"] == "No"]
+    elif pop_sel == "Unknown":
+        df = df[df["Popular"] == "Unknown"]
 
-    st.caption(f"{len(filtered)} concerts")
+    st.caption(f"{len(df)} concerts")
 
-    # Display as styled table
-    display_df = filtered[["Date", "Time", "Event", "Artists", "Venue", "City", "Artist Country", "Country Name", "Fans", "Popular", "Tags", "Genres"]].copy()
-    display_df["Date"] = display_df["Date"].dt.strftime("%Y-%m-%d")
-    display_df["Fans"] = display_df["Fans"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) else "N/A")
+    display = df[["Date", "Time", "Event", "Artists", "Venue", "City", "Origin", "Fans", "Popular", "Tags", "Genres"]].copy()
+    display["Fans"] = display["Fans"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x else "—")
 
     st.dataframe(
-        display_df,
+        display,
         use_container_width=True,
         height=600,
         column_config={
-            "Date": st.column_config.TextColumn("Date", width="small"),
-            "Time": st.column_config.TextColumn("Time", width="small"),
+            "Date": st.column_config.TextColumn("📅 Date", width="small"),
+            "Time": st.column_config.TextColumn("⏰", width="small"),
             "Event": st.column_config.TextColumn("Event", width="medium"),
             "Artists": st.column_config.TextColumn("Artists", width="medium"),
             "Venue": st.column_config.TextColumn("Venue", width="medium"),
             "City": st.column_config.TextColumn("City", width="small"),
-            "Artist Country": st.column_config.TextColumn("Origin", width="small"),
-            "Country Name": st.column_config.TextColumn("Country", width="small"),
+            "Origin": st.column_config.TextColumn("Origin", width="small"),
             "Fans": st.column_config.TextColumn("Fans", width="small"),
-            "Popular": st.column_config.TextColumn("Popular", width="small"),
+            "Popular": st.column_config.TextColumn("Pop?", width="small"),
             "Tags": st.column_config.TextColumn("Tags", width="medium"),
             "Genres": st.column_config.TextColumn("Genres", width="small"),
         },
     )
 
-    # Download button
-    csv = filtered.to_csv(index=False).encode("utf-8")
+    csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("📥 Download CSV", csv, "concerts_sweden.csv", "text/csv")
