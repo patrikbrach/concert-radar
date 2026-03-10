@@ -239,7 +239,7 @@ for c in concerts:
 
         big_concerts.append((max_fans, c))
 
-big_concerts.sort(reverse=True)
+big_concerts.sort(key=lambda x: x[0], reverse=True)
 
 for fans, c in big_concerts[:20]:
 
