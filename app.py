@@ -38,6 +38,14 @@ def cn(code):
 def flag(code):
     return COUNTRY_FLAGS.get(code, "🌍")
 
+def fmt_price(mn, mx, cur):
+    if mn is None:
+        return None
+    cur = cur or "SEK"
+    if mx and mx != mn:
+        return f"{cur} {mn:.0f}–{mx:.0f}"
+    return f"from {cur} {mn:.0f}"
+
 
 # ── Styling ──
 st.markdown("""
@@ -170,6 +178,17 @@ st.markdown("""
     .summary-line .pink { color: #cb69c1; font-weight: 700; }
 
     section[data-testid="stSidebar"] { background: #12121a; }
+
+    .highlight-card .price-badge {
+        display: inline-block;
+        background: #1a2a1a;
+        border: 1px solid #3a5a3a;
+        border-radius: 20px;
+        padding: 3px 10px;
+        font-size: 11px;
+        color: #80c080;
+        font-weight: 600;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -181,7 +200,7 @@ def fetch_concerts():
     page = 0
     total_pages = 1
 
-    while page < total_pages and page < 5:
+    while page < total_pages and page < 10:
         url = "https://app.ticketmaster.com/discovery/v2/events.json"
         params = {
             "apikey": TM_API_KEY,
@@ -208,6 +227,11 @@ def fetch_concerts():
         genre = e.get("classifications", [{}])[0].get("genre", {}).get("name", "")
         sub = e.get("classifications", [{}])[0].get("subGenre", {}).get("name", "")
 
+        prices = e.get("priceRanges", [])
+        price_min = prices[0].get("min") if prices else None
+        price_max = prices[0].get("max") if prices else None
+        price_currency = prices[0].get("currency", "SEK") if prices else None
+
         rows.append({
             "id": e.get("id"),
             "event": e.get("name"),
@@ -219,6 +243,9 @@ def fetch_concerts():
             "url": e.get("url", ""),
             "genre": genre,
             "subgenre": sub,
+            "price_min": price_min,
+            "price_max": price_max,
+            "price_currency": price_currency,
         })
     return rows
 
@@ -337,11 +364,74 @@ for v in real_artists.values():
     country_counts[c] = country_counts.get(c, 0) + 1
 
 # ── TABS ──
-tab_dash, tab_highlights, tab_concerts = st.tabs([
+tab_next30, tab_dash, tab_highlights, tab_concerts = st.tabs([
+    f"📅 Next 30 Days",
     f"📊 Dashboard",
     f"🔥 Highlights & Top Artists",
     f"🎵 All Concerts ({len(concerts)})",
 ])
+
+
+# ═══════════════════════════════════════════
+# NEXT 30 DAYS
+# ═══════════════════════════════════════════
+with tab_next30:
+    today_str = now.strftime("%Y-%m-%d")
+    cutoff_str = (now + timedelta(days=30)).strftime("%Y-%m-%d")
+    next30 = [c for c in concerts if c["date"] and today_str <= c["date"] <= cutoff_str]
+    next30_popular = [c for c in next30 if any(real_artists.get(a, {}).get("is_popular") for a in c["artists"])]
+    next30_priced = [c for c in next30 if c.get("price_min") is not None]
+
+    n1, n2, n3, n4 = st.columns(4)
+    n1.metric("Concerts", len(next30))
+    n2.metric("With popular artists", len(next30_popular))
+    n3.metric("Cities", len(set(c["city"] for c in next30)))
+    cheapest = min((c["price_min"] for c in next30_priced), default=None)
+    n4.metric("Cheapest ticket", f"{next30_priced[0]['price_currency'] if next30_priced else 'SEK'} {cheapest:.0f}" if cheapest else "—")
+
+    st.markdown("---")
+
+    # Build table for next 30 days
+    n30_rows = []
+    for c in sorted(next30, key=lambda x: x["date"]):
+        primary = c["artists"][0] if c["artists"] else ""
+        info = real_artists.get(primary, {})
+        max_fans = max((real_artists.get(a, {}).get("fans") or 0 for a in c["artists"]), default=0)
+        price_str = fmt_price(c.get("price_min"), c.get("price_max"), c.get("price_currency"))
+        n30_rows.append({
+            "Date": c["date"],
+            "Event": c["event"],
+            "Artists": ", ".join(c["artists"]),
+            "Venue": c["venue"],
+            "City": c["city"],
+            "Price": price_str if price_str else "—",
+            "Fans": max_fans if max_fans else None,
+            "Popular": "⭐" if any(real_artists.get(a, {}).get("is_popular") for a in c["artists"]) else "",
+            "Origin": f'{flag(info.get("country"))} {info.get("country_name", "?")}' if info else "?",
+            "Tickets": c["url"],
+        })
+
+    if n30_rows:
+        n30_df = pd.DataFrame(n30_rows)
+        n30_df["Fans"] = n30_df["Fans"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x else "—")
+        st.dataframe(
+            n30_df[["Date", "Event", "Artists", "Venue", "City", "Price", "Fans", "Popular", "Origin"]],
+            use_container_width=True,
+            height=600,
+            column_config={
+                "Date": st.column_config.TextColumn("📅 Date", width="small"),
+                "Event": st.column_config.TextColumn("Event", width="medium"),
+                "Artists": st.column_config.TextColumn("Artists", width="medium"),
+                "Venue": st.column_config.TextColumn("Venue", width="medium"),
+                "City": st.column_config.TextColumn("City", width="small"),
+                "Price": st.column_config.TextColumn("🎟️ Price", width="small"),
+                "Fans": st.column_config.TextColumn("Fans", width="small"),
+                "Popular": st.column_config.TextColumn("⭐", width="small"),
+                "Origin": st.column_config.TextColumn("Origin", width="small"),
+            },
+        )
+    else:
+        st.info("No concerts in the next 30 days.")
 
 
 # ═══════════════════════════════════════════
@@ -487,9 +577,12 @@ with tab_highlights:
             for t in list(tags_all)[:5]:
                 tag_chips += f'<span class="genre-tag">{t}</span>'
 
+            price_label = fmt_price(c.get("price_min"), c.get("price_max"), c.get("price_currency"))
+            price_html = f'<span class="price-badge">🎟️ {price_label}</span>' if price_label else ""
+
             st.markdown(f"""
             <div class="highlight-card popular">
-                <div class="date">{c["date"]} • {c["time"][:5] if c["time"] else ""}</div>
+                <div class="date">{c["date"]} • {c["time"][:5] if c["time"] else ""} {price_html}</div>
                 <div class="event-name">{c["event"]}</div>
                 <div class="venue">📍 {c["venue"]}, {c["city"]}</div>
                 <div class="artist-info">{artist_chips}</div>
@@ -530,17 +623,6 @@ with tab_highlights:
         if not artists_with_fans:
             st.info("No artist data yet.")
 
-    # Next 30 days section
-    st.markdown("---")
-    st.subheader("📅 Next 30 Days")
-    cutoff = (now + timedelta(days=30)).strftime("%Y-%m-%d")
-    next30 = [c for c in concerts if c["date"] and c["date"] <= cutoff and c["date"] >= now.strftime("%Y-%m-%d")]
-    next30_popular = [c for c in next30 if any(real_artists.get(a, {}).get("is_popular") for a in c["artists"])]
-
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Concerts in next 30 days", len(next30))
-    m2.metric("With popular artists", len(next30_popular))
-    m3.metric("Cities", len(set(c["city"] for c in next30)))
 
 
 # ═══════════════════════════════════════════
@@ -575,6 +657,7 @@ with tab_concerts:
             if f > max_fans:
                 max_fans = f
 
+        price_str = fmt_price(c.get("price_min"), c.get("price_max"), c.get("price_currency"))
         rows.append({
             "Date": c["date"],
             "Time": c["time"][:5] if c["time"] else "",
@@ -588,6 +671,7 @@ with tab_concerts:
             "Popular": "Yes" if any(real_artists.get(a, {}).get("is_popular") for a in c["artists"]) else (
                 "No" if any(a in real_artists for a in c["artists"]) else "Unknown"
             ),
+            "Price": price_str if price_str else "—",
             "Tags": ", ".join(all_tags) if all_tags else "",
             "Genres": ", ".join(all_genres) if all_genres else "",
             "Tickets": c["url"],
@@ -615,7 +699,7 @@ with tab_concerts:
 
     st.caption(f"{len(df)} concerts")
 
-    display = df[["Date", "Time", "Event", "Artists", "Venue", "City", "Origin", "Fans", "Popular", "Tags", "Genres"]].copy()
+    display = df[["Date", "Time", "Event", "Artists", "Venue", "City", "Origin", "Fans", "Popular", "Price", "Tags", "Genres"]].copy()
     display["Fans"] = display["Fans"].apply(lambda x: f"{x:,.0f}" if pd.notnull(x) and x else "—")
 
     st.dataframe(
@@ -632,6 +716,7 @@ with tab_concerts:
             "Origin": st.column_config.TextColumn("Origin", width="small"),
             "Fans": st.column_config.TextColumn("Fans", width="small"),
             "Popular": st.column_config.TextColumn("Pop?", width="small"),
+            "Price": st.column_config.TextColumn("🎟️ Price", width="small"),
             "Tags": st.column_config.TextColumn("Tags", width="medium"),
             "Genres": st.column_config.TextColumn("Genres", width="small"),
         },
